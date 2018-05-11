@@ -1,0 +1,428 @@
+---
+title: "project"
+author: "Xiaoxiang Zhang"
+date: "2018/4/13"
+output: html_document
+---
+```{r}
+red <- read.csv(file="./winequality/winequality-red.csv", header=TRUE, sep=";")
+```
+
+```{r}
+summary(red)
+```
+
+```{r}
+red$quality
+```
+
+```{r}
+red$quality_ordered <- factor(red$quality, levels = c(0,1,2,3,4,5,6,7,8,9,10), ordered=TRUE)
+red$quality_ordered
+```
+
+```{r}
+head(red, 5)
+mean(red$fixed.acidity)
+table(red$quality)
+red_sd = sd(red$quality)
+```
+
+
+Calculating the Inner Quartile Range in R
+```{r}
+q3= quantile(red$quality, 0.75)
+q1= quantile(red$quality, 0.25)
+q1
+q3
+IQR_red= IQR(red$quality)
+```
+
+outliers based on Interquartile range
+```{r}
+low_out= sum(red$quality < q1 - 1.5 * IQR_red)
+high_out= sum(red$quality > q3 + 1.5 * IQR_red)
+sum_out= low_out + high_out
+sum_out
+```
+
+
+```{r}
+library(randomForest)
+library(Boruta)
+
+whitewine <- read.csv(file="./winequality/winequality-white.csv", header=TRUE, sep=";")
+head(whitewine, 5)
+head(whitewine)
+dim(whitewine)
+
+str(whitewine)
+unique(whitewine$quality)
+# since there are only quality values in the range of 3 to 9
+whitewine$quality <- factor(whitewine$quality)
+summary(whitewine)
+unique(whitewine$quality)
+```
+
+
+
+```{r}
+qualColWhite <- grep("quality", colnames(whitewine))
+
+summary(whitewine)
+train= sample(length(whitewine$quality), as.integer(length(whitewine$quality)* 0.66), replace = FALSE)
+training <- whitewine[train,]
+testing <- whitewine[-train,]
+
+dim(training)
+dim(testing)
+```
+
+simple linear model
+```{r}
+lm.fit=lm(training$quality ~., data= training)
+lm.fit
+```
+
+Cross validation
+```{r}
+library(glmnet)
+#x=data.frame(training[-12])
+x=cbind(whitewine$fixed.acidity, whitewine$volatile.acidity, whitewine$citric.acid, whitewine$residual.sugar, whitewine$chlorides, whitewine$free.sulfur.dioxide, whitewine$total.sulfur.dioxide, whitewine$density, whitewine$pH, whitewine$sulphates, whitewine$alcohol)
+x = scale(x)
+#x= (x-colMeans(x))/apply(x,2,var)
+dim(x)
+cv.eer = cv.glmnet(x, c(whitewine$quality), alpha=1, type.measure="mse")
+plot(cv.eer)
+```
+
+
+```{r}
+min= cv.eer$lambda.min
+min
+lasso_cv=glmnet(x,c(whitewine$quality),alpha=1, lambda=min)
+coef(lasso_cv)[,1]
+```
+
+
+NN
+```{r}
+library(DAAG)
+library(nnet)
+#white_frame=data.frame(x= whitewine[-12], y=whitewine[12])
+resu= NULL
+loss_min= 30000
+#x= red[,1:11]
+#x= scale(x)
+xx= x
+train= sample(length(whitewine$quality), as.integer(length(whitewine$quality)* 0.66), replace = FALSE)
+for (o in 0:9){
+  loss_pre= 30000
+  select_h= NULL
+  hh= 0
+  for (h in 0:11){
+    loss= 0
+    training <- xx[train,]
+    testing <- xx[-train,]
+    white_nn = nnet(training, c(whitewine[train, ]$quality), size = h, maxit = 1000, linout=TRUE, abstol= 1e-3, decay= 1e-5, skip= TRUE)
+    pre= predict(white_nn, testing)
+    temp= abs(pre- c(whitewine[-train, ]$quality))
+    loss= sum(temp)
+    if(loss> loss_pre){
+      hh= h
+      break
+    }
+    else{
+      loss_pre= loss
+      hh=h
+    }
+    select_h= append(select_h, loss)
+  }
+  white_nn = nnet(training, c(whitewine[train, ]$quality), size = hh, maxit = 1000, linout=TRUE, abstol= 1e-3, decay= 1e-5, skip= TRUE)
+  print(select_h[h]/dim(testing)[1])
+  loss_pre= loss
+  if(loss< loss_min){
+    loss_min= loss
+    resu= pre
+    print(o)
+  }
+  #plot(c(whitewine$quality), predict(white_nn, xx))
+  
+  
+  v_min= NULL
+  for (i in 1:dim(xx)[2]){
+    ave= colMeans(as.matrix(whitewine[,1:11]))
+    temp= whitewine[ ,i]
+    min_temp= min(temp)
+    max_temp= max(temp)
+    L= seq(min_temp, max_temp, length.out= 5)
+    ave_temp= ave[i]
+    diff_y= NULL
+    for (j in 1:5){
+      ave[i]= L[j]
+      diff_y= append(diff_y, predict(white_nn, ave))
+    }
+    ave_y= sum(diff_y)/5
+    V= sum((diff_y- ave_y) * (diff_y- ave_y)) / 4
+    v_min= append(v_min, V)
+  }
+  R= v_min/ sum(v_min) * 100
+  R_num= which.min(R)
+  print(R_num)
+  xx= xx[,-R_num]
+}
+loss_pre= 30000
+select_h= NULL
+hh= 0
+for (h in 0:11){
+  loss= 0
+  training <- xx[train]
+  testing <- xx[-train]
+  white_nn = nnet(training, c(whitewine[train, ]$quality), size = h, maxit = 1000, linout=TRUE, abstol= 1e-3, decay= 1e-5, skip= TRUE)
+  pre= predict(white_nn, testing)
+  temp= abs(pre- c(whitewine[-train, ]$quality))
+  loss= sum(temp)
+  if(loss> loss_pre){
+    hh= h
+    break
+  }
+  else{
+    loss_pre= loss
+    hh=h
+  }
+  select_h= append(select_h, loss)
+}
+white_nn = nnet(training, c(whitewine[train, ]$quality), size = hh, maxit = 1000, linout=TRUE, abstol= 1e-3, decay= 1e-5, skip= TRUE)
+print(select_h[h]/dim(testing)[1])
+loss_pre= loss
+#plot(c(whitewine$quality), predict(white_nn, xx))
+
+
+v_min= NULL
+ave= colMeans(as.matrix(whitewine[,1:11]))
+temp= whitewine[ ,i]
+min_temp= min(temp)
+max_temp= max(temp)
+L= seq(min_temp, max_temp, length.out= 5)
+ave_temp= ave[i]
+diff_y= NULL
+for (j in 1:5){
+  ave[i]= L[j]
+  diff_y= append(diff_y, predict(white_nn, ave))
+}
+ave_y= sum(diff_y)/5
+V= sum((diff_y- ave_y) * (diff_y- ave_y)) / 4
+v_min= append(v_min, V)
+R= v_min/ sum(v_min) * 100
+R_num= which.min(R)
+print(R_num)
+```
+0.204165
+0.414659
+0.7270314
+```{r}
+count=0
+for (j in 1:dim(whitewine)[1]){
+  if (abs(predic[j]-whitewine$quality[j])>1){count=count+1}}
+accuracy_25=1-count/dim(whitewine)[1]
+```
+
+REC curves
+```{r}
+jjj= NULL
+for (k in seq(0,2, length.out= 50)){
+  count=0
+  for (j in 1:dim(whitewine[-train, ])[1]){
+    if (abs(resu[j]-whitewine$quality[j])>k){count=count+1}}
+  jjj = append(jjj, (1-count/dim(whitewine[-train, ])[1]))
+}
+```
+
+
+tree!!!
+```{r}
+library(tree)
+whitewine <- read.csv(file="./winequality/winequality-white.csv", header=TRUE, sep=";")
+x=cbind(whitewine$fixed.acidity, whitewine$volatile.acidity, whitewine$citric.acid, whitewine$residual.sugar, whitewine$chlorides, whitewine$free.sulfur.dioxide, whitewine$total.sulfur.dioxide, whitewine$density, whitewine$pH, whitewine$sulphates, whitewine$alcohol)
+x = scale(x)
+whitewine[,1:11]= x
+#whitewine[, 12]= factor(c(whitewine[,12]))
+#white= data.frame(x= x, y=factor(c(whitewine[12])))
+tree.suit= tree(quality~., whitewine)
+summary(tree.suit)
+```
+
+
+```{r}
+tree.suit
+```
+
+
+```{r}
+plot(tree.suit)
+text(tree.suit, pretty = 0)
+```
+
+
+```{r}
+tree.pre = predict(tree.suit, whitewine)
+sum(abs(tree.pre- whitewine[12]))/dim(whitewine)[1]
+```
+
+
+random forest
+0.586792
+0.5642262
+
+0.5645832
+```{r}
+whitewine <- read.csv(file="./winequality/winequality-white.csv", header=TRUE, sep=";")
+whitewine<-na.omit(whitewine)
+whitewine[,1:11] = scale(whitewine[,1:11])
+#whitewine$quality <- factor(whitewine$quality, levels = c(0,1,2,3,4,5,6,7,8,9,10), ordered=TRUE)
+loss= 0
+predic= NULL
+num_f= NULL
+leng=c(1, 980,981, 1960,1961, 2940,2941, 3920,3921,4898)
+loss_all= NULL
+for (k in 1:5){
+  test= seq(leng[2*k-1], leng[2*k])
+  tree_training= whitewine[-test,]
+  tree_testing= whitewine[test,]
+  iris.rf <- randomForest(quality ~ ., data=tree_training, proximity=TRUE, ntree= 2000)
+  plot(iris.rf)
+  p= predict(iris.rf, tree_testing)
+  predic= append(predic, p)
+  loss= loss + sum(abs(p- tree_testing$quality))
+}
+loss_all= append(loss_all, loss/ dim(whitewine)[1])
+print(loss/ dim(whitewine)[1])
+iris.rf <- randomForest(quality ~ ., data=whitewine, proximity=TRUE)
+a= importance(iris.rf)
+```
+
+
+```{r}
+iris.rf$err.rate
+```
+
+
+```{r}
+MDSplot(iris.rf, whitewine[,12])
+```
+
+
+
+nn improve(2-norm, cross validation)  
+```{r}
+library(DAAG)
+library(nnet)
+loss_before= 30000
+whitewine <- read.csv(file="./winequality/winequality-white.csv", header=TRUE, sep=";")
+x=cbind(whitewine$fixed.acidity, whitewine$volatile.acidity, whitewine$citric.acid, whitewine$residual.sugar, whitewine$chlorides, whitewine$free.sulfur.dioxide, whitewine$total.sulfur.dioxide, whitewine$density, whitewine$pH, whitewine$sulphates, whitewine$alcohol)
+x = scale(x)
+xx= x
+pre_out= NULL
+outputt= NULL
+h_out= NULL
+r_out= NULL
+leng= as.integer(dim(whitewine)[1]/5)
+#train= sample(length(whitewine$quality), as.integer(length(whitewine$quality)* 0.66), replace = FALSE)
+for (o in 0:9){
+  loss_pre= 0
+  select_h= NULL
+  for (h in 0:dim(xx)[2]){
+    loss= 0
+    for (k in 0:4){
+      test= seq(k* leng, (k+1)* leng)
+      training= xx[-test,]
+      testing= xx[test,]
+      white_nn = nnet(training, c(whitewine[-test, ]$quality), size = h, maxit = 1000, linout=TRUE, abstol= 1e-3, decay= 1e-5, skip= TRUE)
+      pre= predict(white_nn, testing)
+      temp= abs(pre- c(whitewine[test, ]$quality))
+      temp= temp * temp
+      loss= loss+ sum(temp)
+    }
+    select_h= append(select_h, loss)
+  }
+  h= which.min(select_h)
+  white_nn = nnet(xx, c(whitewine$quality), size = h, maxit = 1000, linout=TRUE, abstol= 1e-3, decay= 1e-5, skip= TRUE)
+  if(select_h[h]< loss_before){
+    loss_before= select_h[h]
+    pre_out= predict(white_nn, xx)
+  }
+  print(select_h[h]/dim(xx)[1])
+  outputt= append(outputt, select_h[h]/dim(xx)[1])
+  h_out= append(h_out, h)
+  #loss_pre= loss
+  #plot(c(whitewine$quality), predict(white_nn, xx))
+  
+  v_min= NULL
+  L= c(-1, -0.5, 0, 0.5, 1)
+  for (i in 1:dim(xx)[2]){
+    ave= colMeans(as.matrix(whitewine[,1:11]))
+    ave_temp= ave[i]
+    diff_y= NULL
+    for (j in 1:5){
+      ave[i]= L[j]
+      diff_y= append(diff_y, predict(white_nn, ave))
+    }
+    ave_y= sum(diff_y)/5
+    V= sum((diff_y- ave_y) * (diff_y- ave_y)) / 4
+    v_min= append(v_min, V)
+  }
+  R= v_min/ sum(v_min) * 100
+  R_num= which.min(R)
+  r_out= append(r_out, R_num)
+  print(R_num)
+  xx= xx[,-R_num]
+}
+loss_pre= 0
+select_h= NULL
+for (h in 0:11){
+  loss= 0
+  for (k in 0:4){
+    test= seq(k* leng, (k+1)* leng)
+    training= xx[-test]
+    testing= xx[test]
+    white_nn = nnet(training, c(whitewine[-test, ]$quality), size = h, maxit = 1000, linout=TRUE, abstol= 1e-3, decay= 1e-5, skip= TRUE)
+    pre= predict(white_nn, testing)
+    temp= abs(pre- c(whitewine[test, ]$quality))
+    temp= temp * temp
+    loss= loss+ sum(temp)
+  }
+  select_h= append(select_h, loss)
+}
+h= which.min(select_h)
+white_nn = nnet(xx, c(whitewine$quality), size = h, maxit = 1000, linout=TRUE, abstol= 1e-3, decay= 1e-5, skip= TRUE)
+print(select_h[h]/dim(xx)[1])
+outputt= append(outputt, select_h[h]/dim(xx)[1])
+h_out= append(h_out, h)
+#loss_pre= loss
+#plot(c(whitewine$quality), predict(white_nn, xx))
+
+v_min= NULL
+L= c(-1, -0.5, 0, 0.5, 1)
+ave= colMeans(as.matrix(whitewine[,1:11]))
+ave_temp= ave[i]
+diff_y= NULL
+for (j in 1:5){
+  ave[i]= L[j]
+  diff_y= append(diff_y, predict(white_nn, ave))
+}
+ave_y= sum(diff_y)/5
+V= sum((diff_y- ave_y) * (diff_y- ave_y)) / 4
+v_min= append(v_min, V)
+R= v_min/ sum(v_min) * 100
+R_num= which.min(R)
+r_out= append(r_out, R_num)
+print(R_num)
+```
+
+
+```{r}
+pre_out= round(predic)
+prediction=factor(c(pre_out), levels = c(3,4,5,6,7,8,9,10), ordered=TRUE)
+reference=factor(whitewine$quality, levels = c(3,4,5,6,7,8,9,10), ordered=TRUE)
+confusionMatrix(prediction, reference)
+```

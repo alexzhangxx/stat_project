@@ -1,0 +1,344 @@
+
+```{r}
+library(FNN)
+library(kernlab)
+library(caret)
+library(e1071)
+redwine=read.csv("./wineQualityReds.csv")
+whitewine=read.csv("./wineQualityWhites .csv")
+```
+
+```{r}
+red_y=redwine$quality
+redwine=redwine[,-1]
+redwine=redwine[,-12]
+redwine=scale(redwine)
+white_y=whitewine$quality
+whitewine=whitewine[,-1]
+whitewine=whitewine[,-12]
+whitewine=scale(whitewine)
+```
+
+#SVM regression and importance calculation in simontaneous model selection and feature selection algorithm (White wine as an example)
+
+```{r}
+#calculating the epsilon parameter for SVM regression, here the example is using white wine dataset
+library(FNN)
+library(kernlab)
+library(caret)
+library(e1071)
+knnm=knn(whitewine,whitewine,white_y,k=3)
+knnm=as.numeric(as.character(knnm))
+sum=0
+for (i in 1:1599){sum=sum+(knnm[i]-white_y[i])^2}
+ep=(1.5*sum/1599)/1599^0.5
+ep
+```
+
+
+```{r}
+#dividing the dataset into training and testing data
+train=sample(1:nrow(whitewine),3265)
+whitewinetrain=whitewine[train,]
+whitewinetest=whitewine[-train,]
+white_ytrain=white_y[train]
+white_ytest=white_y[-train]
+```
+
+```{r}
+column_svm_mad=rep(0,11)# this stores feature deletion information
+l=c(-1,-0.5,0,0.5,1)
+mad=rep(100,11)
+para_mad=rep(0,11)
+```
+
+```{r}
+# simontaneous model selection and feature selection
+for (k in 1:10){
+  mad1=99
+  i=1
+  while (mad[k]>mad1)
+  {mad[k]=mad1
+  svmm=ksvm(x=whitewinetrain,y=white_ytrain,type="eps-svr",kernel="rbfdot",epsilon=0.02,kpar=list(sigma[i]),scaled=FALSE,C=3)
+  pred1=predict(svmm,whitewinetest)
+  sum=0
+  for (j in 1:533){sum=sum+abs(pred1[j]-white_ytest[j])}
+  mad1=sum/533
+  i=i+1
+  }
+  para_mad[k]=i-2
+  svmm=ksvm(x=whitewinetrain,y=white_ytrain,type="eps-svr",kernel="rbfdot",epsilon=0.02,kpar=list(sigma[i-2]),scaled=FALSE,C=3)
+  means=colMeans(whitewinetrain)
+  pred1=c(0,0,0,0,0)
+  vari=rep(0,12-k)
+  for (m in 1:(12-k)){
+    for (i in 1:5){
+      means1=data.frame(as.list(means))
+      means1[m]=l[i]
+      pred1[i]=predict(svmm,means1)
+    }
+  vari[m]=var(pred1)
+  }
+  r=rep(0,12-k)
+  for (j in 1:(12-k)){
+    r[j]=vari[j]/sum(vari)
+  }
+  if (k==1){importance=r}
+  column_svm_mad[k]=which.min(r)
+  whitewinetrain=whitewinetrain[,-column_svm_mad[k]]
+  whitewinetest=whitewinetest[,-column_svm_mad[k]]
+}
+k=11
+mad1=99
+i=1
+while (mad[k]>mad1)
+{mad[k]=mad1
+svmm=ksvm(x=whitewinetrain,y=white_ytrain,type="eps-svr",kernel="rbfdot",epsilon=0.02,kpar=list(sigma[i]),scaled=FALSE,C=3)
+pred1=predict(svmm,whitewinetest)
+sum=0
+for (j in 1:533){sum=sum+abs(pred1[j]-white_ytest[j])}
+mad1=sum/533
+i=i+1
+}
+para_mad[k]=i-2
+svmm=ksvm(x=whitewinetrain,y=white_ytrain,type="eps-svr",kernel="rbfdot",epsilon=0.02,kpar=list(sigma[i-2]),scaled=FALSE,C=3)
+column_svm_mad[k]=1
+```
+
+
+
+```{r}
+# the importance of 11 features
+importance
+```
+
+```{r}
+# obtain the final model
+m=which.min(mad)
+whitewinetrain=whitewine[train,]
+whitewinetest=whitewine[-train,]
+for (i in 1:(m-1)){
+  whitewinetrain=whitewinetrain[,-column_svm_mad[i]]
+  whitewinetest=whitewinetest[,-column_svm_mad[i]]}
+svmm=ksvm(x=whitewinetrain,y=white_ytrain,type="eps-svr",kernel="rbfdot",epsilon=0.02,kpar=list(sigma[para_mad[m]]),scaled=FALSE,C=3)
+```
+
+
+```{r}
+# evaluate the model with repeated cv
+ctrl1=trainControl(method = "repeatedcv",repeats = 20,number = 5,search = "grid")
+svmgrid1=expand.grid(C=3,sigma=c(sigma[para_mad[m]]))
+sv=train(x=whitewine1,y=white_y,method = 'svmRadial',metric = "MAE",tuneGrid = svmgrid1,trControl=ctrl1)
+```
+
+```{r}
+#calculating the accuracy with different tolerance the example is 0.25
+pred1=predict(svmm,whitewinetest)
+count=0
+for (j in 1:1633){
+  if (abs(pred1[j]-white_ytest[j])>0.25){count=count+1}}
+accuracy_25=1-count/1633
+accuracy_25
+```
+
+```{r}
+#calculating the REC curve
+t= seq(0, 2, length.out= 50)
+jjj= NULL
+for (k in seq(0,2, length.out= 50)){
+  count=0
+  for (j in 1:980){
+    if (abs(pred1[j]-white_ytest[j])>k){count=count+1}}
+  jjj = append(jjj, (1-count/980))
+}
+jjj
+```
+
+```{r}
+#calculating the confusion fatrix
+prediction=factor(round(pred1))
+reference=factor(white_ytest)
+confusionMatrix(prediction, reference)
+```
+
+
+
+```{r}
+# image of MAD vs ITERATIONS
+x=c(1,2,3,4,5,6,7,8,9,10,11)
+ttt=data.frame(x,mad)
+ggplot(ttt,aes(x=x,y=mad))+geom_line()
+```
+
+
+#linear regression in simontaneous model selection and feature selection algorithm (White wine as an example)
+```{r}
+train=sample(1:nrow(whitewine),3265)
+whitewinetrain=whitewine[train,]
+whitewinetest=whitewine[-train,]
+white_ytrain=white_y[train]
+white_ytest=white_y[-train]
+```
+
+```{r}
+T=data.frame(X1=whitewinetrain[,1],X2=whitewinetrain[,2],X3=whitewinetrain[,3],X4=whitewinetrain[,4],X5=whitewinetrain[,5],X6=whitewinetrain[,6],X7=whitewinetrain[,7],X8=whitewinetrain[,8],X9=whitewinetrain[,9],X10=whitewinetrain[,10],X11=whitewinetrain[,11])
+Test=data.frame(X1=whitewinetest[,1],X2=whitewinetest[,2],X3=whitewinetest[,3],X4=whitewinetest[,4],X5=whitewinetest[,5],X6=whitewinetest[,6],X7=whitewinetest[,7],X8=whitewinetest[,8],X9=whitewinetest[,9],X10=whitewinetest[,10],X11=whitewinetest[,11])
+```
+
+```{r}
+mad_lm=rep(0,11)
+column_lm_mad=rep(0,11)
+```
+
+
+```{r}
+for (k in 1:10){
+  lm.fit=lm(white_ytrain~.,data=T)
+  pred=predict(lm.fit,Test)
+  sum=0
+  for (j in 1:1633){sum=sum+abs(pred[j]-white_ytest[j])}
+  mad_lm[k]=sum/1633
+  means=colMeans(T)
+  pred1=c(0,0,0,0,0)
+  vari=rep(0,12-k)
+  for (m in 1:(12-k)){
+    for (i in 1:5){
+      means1=data.frame(as.list(means))
+      means1[m]=l[i]
+      pred1[i]=predict(lm.fit,means1)
+    }
+  vari[m]=var(pred1)
+  }
+  r=rep(0,12-k)
+  for (j in 1:(12-k)){
+    r[j]=vari[j]/sum(vari)
+  }
+  column_lm_mad[k]=which.min(r)
+  T=T[,-column_lm_mad[k]]
+  Test=Test[,-column_lm_mad[k]]
+}
+T=data.frame(X1=T)
+Test=data.frame(X1=Test)
+k=11
+lm.fit=lm(white_ytrain~.,data=T)
+pred=predict(lm.fit,Test)
+sum=0
+for (j in 1:1633){sum=sum+abs(pred[j]-white_ytest[j])}
+mad_lm[k]=sum/1633
+```
+
+
+```{r}
+m=which.min(mad_lm)
+mad_lm
+```
+
+
+```{r}
+x=c(1,2,3,4,5,6,7,8,9,10,11)
+ttt1=data.frame(x,mad_lm)
+ggplot(ttt1,aes(x=x,y=mad_lm))+geom_line()
+```
+
+
+```{r}
+whitewine1=whitewine
+train1=sample(1:nrow(whitewine),3918)
+for (i in 1:(m-1)){
+  whitewine1=whitewine1[,-column_lm_mad[i]]
+}
+whitewinetrain=whitewine1[train1,]
+whitewinetest=whitewine1[-train1,]
+white_ytrain=white_y[train1]
+white_ytest=white_y[-train1]
+```
+
+```{r}
+#May need to add columns here since the number of deletion is different
+T=data.frame(X1=whitewinetrain[,1],X2=whitewinetrain[,2],X3=whitewinetrain[,3],X4=whitewinetrain[,4],X5=whitewinetrain[,5],X6=whitewinetrain[,6],X7=whitewinetrain[,7],X8=whitewinetrain[,8])
+Test=data.frame(X1=whitewinetest[,1],X2=whitewinetest[,2],X3=whitewinetest[,3],X4=whitewinetest[,4],X5=whitewinetest[,5],X6=whitewinetest[,6],X7=whitewinetest[,7],X8=whitewinetest[,8])
+```
+
+```{r}
+lm.fit=lm(white_ytrain~.,data=T)
+pred=predict(lm.fit,Test)
+sum=0
+for (j in 1:980){sum=sum+abs(pred[j]-white_ytest[j])}
+mad_lm_final=sum/980
+mad_lm_final
+```
+
+The accuracy and other measurement of linear regression can be calculated in the same way as SVM.
+
+# improvement with cross-validation
+
+```{r}
+ctrl=trainControl(method = "cv",number = 5,search = "grid")
+svmgrid=expand.grid(C=3,sigma=c(8,2,0.5,2^-3,2^-5,2^-7,2^-9,2^-11,2^-13,2^-15))
+```
+
+```{r}
+#calculate the sd of MAE in cv
+mae_cv=rep(0,20)
+for (i in 1:20){
+  print(i)
+  sv=train(x=redwine,y=red_y,method = 'svmRadial',metric = "MAE",tuneGrid = svmgrid,trControl=ctrl)
+  mae_cv[i]=min(sv[["results"]][5])
+}
+mae_original=rep(100,20)
+for (k in 1:20){
+  train1=sample(1:nrow(redwine),1066)
+  redwinetrain=redwine[train1,]
+  redwinetest=redwine[-train1,]
+  red_ytrain=red_y[train1]
+  red_ytest=red_y[-train1]
+  mad1=99
+  i=1
+  while (mae_original[k]>mad1)
+  {mae_original[k]=mad1
+  svmm=ksvm(x=redwinetrain,y=red_ytrain,type="eps-svr",kernel="rbfdot",epsilon=0.0129,kpar=list(sigma[i]),scaled=FALSE,C=3)
+  pred1=predict(svmm,redwinetest)
+  sum=0
+  for (j in 1:533){sum=sum+abs(pred1[j]-red_ytest[j])}
+  mad1=sum/533
+  i=i+1
+  }
+}
+```
+
+algorithm improved with cv.
+
+```{r}
+mae_cv2=rep(0,10)
+column_cv_svm=rep(0,10)
+para_cv_svm=rep(0,10)
+redwine1=redwine
+for (k in 1:10){
+  print(k)
+  sv=train(x=redwine1,y=red_y,method = 'svmRadial',metric = "MAE",tuneGrid = svmgrid,trControl=ctrl)
+  print(k)
+  mae_cv2[k]=min(sv[["results"]][5])
+  para_cv_svm[k]=max(sv[["bestTune"]][1])
+  means=colMeans(redwine1)
+  pred1=c(0,0,0,0,0)
+  vari=rep(0,12-k)
+  for (m in 1:(12-k)){
+    for (i in 1:5){
+      means1=data.frame(as.list(means))
+      means1[m]=l[i]
+      pred1[i]=predict(sv,means1)
+    }
+  vari[m]=var(pred1)
+  }
+  r=rep(0,12-k)
+  for (j in 1:(12-k)){
+    r[j]=vari[j]/sum(vari)
+  }
+  if(k==1){importance=r}
+  column_cv_svm[k]=which.min(r)
+  redwine1=redwine1[,-column_cv_svm[k]]
+  print(k)
+}
+```
+
+The accuracy calculation method is the same as described above.
