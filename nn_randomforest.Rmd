@@ -217,9 +217,9 @@ R= v_min/ sum(v_min) * 100
 R_num= which.min(R)
 print(R_num)
 ```
-0.204165
-0.414659
-0.7270314
+
+
+
 ```{r}
 count=0
 for (j in 1:dim(whitewine)[1]){
@@ -271,10 +271,6 @@ sum(abs(tree.pre- whitewine[12]))/dim(whitewine)[1]
 
 
 random forest
-0.586792
-0.5642262
-
-0.5645832
 ```{r}
 whitewine <- read.csv(file="./winequality/winequality-white.csv", header=TRUE, sep=";")
 whitewine<-na.omit(whitewine)
